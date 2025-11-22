@@ -1,0 +1,136 @@
+﻿<!--
+  Simple Leaflet frontend for showing latest positions of all objects.
+  Fetches /last_positions every 2 seconds and updates markers on the map.
+-->
+<!DOCTYPE html>
+<html lang="uk">
+  <head>
+    <meta charset="UTF-8" />
+    <meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
+    <title>Моніторинг доставки — MVP</title>
+    <link
+      rel="stylesheet"
+      href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+      integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY="
+      crossorigin=""
+    />
+    <style>
+      html, body { height: 100%; margin: 0; }
+      #map { height: 100vh; width: 100vw; }
+      .leaflet-popup-content { font-size: 14px; }
+      .legend {
+        position: absolute;
+        top: 10px;
+        left: 10px;
+        background: rgba(255,255,255,0.9);
+        padding: 8px 10px;
+        border-radius: 6px;
+        box-shadow: 0 1px 4px rgba(0,0,0,0.2);
+        z-index: 999;
+      }
+      /* Custom directional arrow marker (Telegram-like) */
+    </style>
+  </head>
+  <body>
+    <div class="legend">
+      <strong>Моніторинг доставки</strong><br />
+      Оновлення кожні 2 с.
+    </div>
+    <div id="map"></div>
+
+    <script
+      src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+      integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo="
+      crossorigin=""
+    ></script>
+    <script>
+      // Ensure proper UI text in case of encoding issues in source
+      (function applyUiText() {
+        try {
+          document.title = '\u041c\u043e\u043d\u0456\u0442\u043e\u0440\u0438\u043d\u0433 \u0434\u043e\u0441\u0442\u0430\u0432\u043a\u0438 \u2014 MVP';
+          const legend = document.querySelector('.legend');
+          if (legend) legend.innerHTML = '<strong>\u041c\u043e\u043d\u0456\u0442\u043e\u0440\u0438\u043d\u0433 \u0434\u043e\u0441\u0442\u0430\u0432\u043a\u0438</strong><br />\u041e\u043d\u043e\u0432\u043b\u0435\u043d\u043d\u044f \u043a\u043e\u0436\u043d\u0456 2 \u0441.';
+        } catch {}
+      })();
+
+      const map = L.map('map').setView([49.8397, 24.0297], 12);
+
+      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        maxZoom: 20,
+        attribution: '&copy; OpenStreetMap contributors'
+      }).addTo(map);
+
+      const markers = new Map();
+
+      function upsertMarker(pos) {
+        const { object_id, lat, lon, speed, ts } = pos;
+        const title = `${object_id}`;
+        const LBL_COORDS = '\u041a\u043e\u043e\u0440\u0434\u0438\u043d\u0430\u0442\u0438';
+        const LBL_SPEED  = '\u0428\u0432\u0438\u0434\u043a\u0456\u0441\u0442\u044c';
+        const LBL_TIME   = '\u0427\u0430\u0441';
+        const popup = `
+          <b>${object_id}</b><br/>
+          ${LBL_COORDS}: ${lat.toFixed(5)}, ${lon.toFixed(5)}<br/>
+          ${LBL_SPEED}: ${
+            speed === null ? '-' : `${Math.round(speed)} \u043a\u043c/\u0433\u043e\u0434`
+          }<br/>
+          ${LBL_TIME}: ${ts}
+        `;
+        if (markers.has(object_id)) {
+          const m = markers.get(object_id);
+          m.setLatLng([lat, lon]).bindPopup(popup);
+        } else {
+          const m = L.marker([lat, lon], { title }).addTo(map).bindPopup(popup);
+          markers.set(object_id, m);
+        }
+      }
+
+      async function fetchPositions() {
+        try {
+          const res = await fetch('/last_positions');
+          if (!res.ok) throw new Error('HTTP ' + res.status);
+          const data = await res.json();
+          const ids = new Set();
+          data.forEach((pos) => {
+            ids.add(pos.object_id);
+            upsertMarker(pos);
+          });
+          // Remove markers for stale or courier_* IDs
+          Array.from(markers.keys()).forEach((id) => {
+            if (id.startsWith("courier_") || !ids.has(id)) {
+              const marker = markers.get(id);
+              if (marker) {
+                map.removeLayer(marker);
+              }
+              markers.delete(id);
+            }
+          });
+        } catch (err) {
+          console.error('Failed to fetch /last_positions', err);
+        }
+      }
+
+      // Initial fetch + polling every 2 seconds
+      fetchPositions();
+      setInterval(fetchPositions, 2000);
+    </script>
+  </body>
+  </html>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

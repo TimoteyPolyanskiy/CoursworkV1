@@ -1,0 +1,6 @@
+# Dependencies for the FastAPI app
+fastapi
+uvicorn
+psycopg2-binary
+sqlalchemy
+geojson
