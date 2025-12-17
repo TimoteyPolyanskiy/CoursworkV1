@@ -17,9 +17,10 @@ def haversine(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
 
 
 def compute_total_distance(path: List[Dict]) -> float:
-    """Sum haversine distances between sequential points."""
     if len(path) < 2:
         return 0.0
+
+    path = sorted(path, key=lambda x: x['iteration_id'])
     distance = 0.0
     for prev, curr in zip(path, path[1:]):
         distance += haversine(
@@ -32,7 +33,6 @@ def compute_total_distance(path: List[Dict]) -> float:
 
 
 def compute_average_speed(path: List[Dict]) -> float:
-    """Average speed (km/h) across samples."""
     speeds = [float(p.get("speed", 0) or 0) for p in path]
     if not speeds:
         return 0.0
@@ -41,7 +41,8 @@ def compute_average_speed(path: List[Dict]) -> float:
 
 
 def detect_stops(path: List[Dict], threshold_kmh: float = 1.0) -> List[Dict[str, int]]:
-    """Detect contiguous segments where speed below threshold."""
+
+    path = sorted(path, key=lambda x: x['iteration_id'])
     segments: List[Dict[str, int]] = []
     start = None
     for record in path:
@@ -62,23 +63,36 @@ def detect_stops(path: List[Dict], threshold_kmh: float = 1.0) -> List[Dict[str,
 def path_to_xy(path: List[Dict]) -> Dict[str, List[float]]:
     """Normalize path to planar offsets (meters)."""
     if not path:
-        return {"x": [], "y": []}
+        return {"x": [], "y": [], "lats": [], "lons": []}
+    
+
+    path = sorted(path, key=lambda x: x['iteration_id'])
+
     origin = path[0]
     origin_lat = origin["latitude"]
     origin_lon = origin["longitude"]
 
     xs: List[float] = []
     ys: List[float] = []
+    lats: List[float] = []
+    lons: List[float] = []
+
+    meters_per_deg_lat = 111_320.0
+    meters_per_deg_lon = 111_320.0 * cos(radians(origin_lat))
 
     for record in path:
-        dlat = record["latitude"] - origin_lat
-        dlon = record["longitude"] - origin_lon
-        # approximate meters per degree
-        meters_per_deg_lat = 111_320.0
-        meters_per_deg_lon = 111_320.0 * cos(radians(origin_lat))
+        clat = record["latitude"]
+        clon = record["longitude"]
+        
+        dlat = clat - origin_lat
+        dlon = clon - origin_lon
+        
         y = dlat * meters_per_deg_lat
         x = dlon * meters_per_deg_lon
+        
         xs.append(round(x, 2))
         ys.append(round(y, 2))
+        lats.append(clat)
+        lons.append(clon)
 
-    return {"x": xs, "y": ys}
+    return {"x": xs, "y": ys, "lats": lats, "lons": lons}

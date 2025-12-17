@@ -4,9 +4,13 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Система моніторингу</title>
+  
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css">
   <link rel="stylesheet" href="https://cdn.datatables.net/1.13.6/css/jquery.dataTables.min.css">
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  
   <style>
     body {
       background-color: #121212;
@@ -15,6 +19,8 @@
       min-height: 100vh;
       margin: 0;
     }
+
+    .text-label-color { color: #9ca3af !important; }
 
     .app-header {
       background: #1E1E2E;
@@ -35,50 +41,82 @@
 
     .card { background-color: #1E1E2E; border-radius: 14px; padding: 18px; border: 1px solid rgba(255,255,255,0.05); box-shadow: 0 0 25px rgba(0,0,0,0.35);}
     .table-wrapper { background: #2D2D3F; border-radius: 12px; overflow: hidden; border: 1px solid rgba(255,255,255,0.05);}
+    
     table.dataTable { width: 100% !important; color: #C7D2FE; }
     table.dataTable thead th { background: #0E0E1A; color: white; font-weight: 600; position: sticky; top: 0; z-index: 3;}
     table.dataTable tbody tr:nth-child(odd) { background: #1C1C2A; }
     table.dataTable tbody tr:nth-child(even) { background: #242436; }
     table.dataTable tbody tr:hover { background: #2F2F45; }
-    .dataTables_wrapper .dataTables_scrollBody { max-height: 60vh !important; overflow-y: auto !important; display: block; }
+    
     .status-badge { padding: 3px 8px; border-radius: 12px; font-size: 12px; font-weight: 600; color: #fff; }
     .badge-moving { background: #4CAF50; }
     .badge-stopped { background: #E53935; }
 
-    #builderArea { min-height: 350px; height: 450px; max-height: 450px; border: 1px dashed rgba(255,255,255,0.25); border-radius: 12px; padding: 20px; background: #1E1E2E; margin-top: 15px;}
-    .chart-card { background: #101322; border-radius: 12px; border: 1px solid rgba(255,255,255,0.08); padding: 12px; margin-top: 10px; max-width: 1100px; margin-left: auto; margin-right: auto;}
+    .footer-note { color: #9ca3af; font-size: 0.9rem; margin-top: 10px; }
+
+    #builderArea { 
+      min-height: 500px; 
+      border: 1px dashed rgba(255,255,255,0.25); 
+      border-radius: 12px; 
+      padding: 20px; 
+      background: #1E1E2E; 
+      margin-top: 15px;
+    }
+
+    .builder-layout { display: flex; flex-wrap: wrap; gap: 20px; }
+    
+    .chart-section { flex: 1 1 50%; min-width: 320px; }
+    
+    .chart-card { 
+      background: #101322; 
+      border-radius: 12px; 
+      border: 1px solid rgba(255,255,255,0.08); 
+      padding: 10px; 
+      width: 100%;
+      aspect-ratio: 1 / 1; 
+      max-height: 650px;
+      display: flex; flex-direction: column;
+    }
+
     .chart-wrapper {
       position: relative;
-      border-radius: 12px;
+      border-radius: 8px;
       overflow: hidden;
       background: #0f172a;
-      height: 300px;
+      flex-grow: 1; width: 100%; height: 100%;
     }
-    .chart-wrapper.map-mode {
-      background:
-        radial-gradient(circle at 20% 30%, #1e293b 0, #020617 60%),
-        radial-gradient(circle at 80% 70%, #1f2937 0, #020617 65%);
+
+    .chart-container { 
+      position: absolute; top: 0; left: 0; right: 0; bottom: 0; 
+      z-index: 10; 
     }
-    .chart-wrapper.map-mode::before {
-      content: "";
-      position: absolute;
-      inset: 10%;
-      background-image:
-        linear-gradient(45deg, rgba(148,163,184,0.3) 4px, transparent 4px),
-        linear-gradient(-30deg, rgba(251,191,36,0.35) 4px, transparent 4px);
-      background-size: 180px 180px;
-      opacity: 0.35;
-      pointer-events: none;
+    
+    #builderMap { 
+      position: absolute; top: 0; left: 0; right: 0; bottom: 0; 
+      z-index: 20; 
+      display: none;
     }
-    .chart-container { height: 300px; width: 100%; }
-    #trajectoryChart { width: 100% !important; height: 100% !important; }
-    #builderResults { min-height: 80px; border-radius: 12px; padding: 15px; background: rgba(255,255,255,0.05); margin-top: 16px; }
-    .who-card { background: #111827; border-radius: 12px; border: 1px solid rgba(148,163,184,0.25); padding: 16px 18px; max-width: 1100px; margin-left: auto; margin-right: auto; margin-top: 20px;}
-    .who-title { font-size: 18px; font-weight: 600; }
-    .who-desc { font-size: 13px; color: #9ca3af;}
-    .builder-controls { display: flex; align-items: center; gap: 0.75rem; flex-wrap: nowrap !important;}
-    .builder-controls label { font-weight: 500; margin-right: 10px; margin-bottom: 0; }
-    .builder-controls button { margin-top: 0;}
+
+    .controls-section { flex: 0 1 300px; display: flex; flex-direction: column; gap: 15px; }
+    .builder-controls { display: flex; flex-direction: column; gap: 10px; width: 100%; }
+    .builder-controls label { margin-bottom: 2px; color: #9ca3af; font-size: 14px;}
+    .builder-controls select { margin-bottom: 5px; }
+    .builder-controls button.tool-btn { width: 100%; margin: 0; text-align: left; padding: 10px 15px; border-radius: 8px;}
+    
+    #builderResults { 
+      min-height: 80px; 
+      border-radius: 8px; 
+      padding: 15px; 
+      background: rgba(255,255,255,0.05); 
+      border: 1px solid rgba(255,255,255,0.1);
+      margin-top: auto;
+    }
+
+    .who-card { background: #111827; border-radius: 12px; border: 1px solid rgba(148,163,184,0.25); padding: 16px 18px; max-width: 1100px; margin-left: auto; margin-right: auto; margin-top: 30px;}
+    
+    .who-desc { font-size: 13px; color: #9ca3af; }
+
+    .leaflet-popup-content-wrapper, .leaflet-popup-tip { background: #1e293b; color: white; }
   </style>
 </head>
 <body>
@@ -87,83 +125,105 @@
     <h1 class="app-title">Система моніторингу</h1>
     <button id="builderBtn" class="btn btn-outline-light btn-sm header-btn" disabled>Конструктор симуляції</button>
   </header>
+  
   <main>
     <div id="screenWrapper">
       <div id="screenContainer">
-        <!-- SCREEN 1 -->
+        
         <section id="screen1" class="screen">
           <div class="card">
             <div class="table-wrapper">
               <table id="positionsTable" class="display table table-sm mb-0">
                 <thead>
                   <tr>
-                    <th>iteration_id</th>
-                    <th>timestamp</th>
-                    <th>object_id (obj_*)</th>
-                    <th>latitude</th>
-                    <th>longitude</th>
-                    <th>speed (км/год)</th>
-                    <th>status</th>
+                    <th>ID</th><th>Час</th><th>Об'єкт</th><th>Широта</th><th>Довгота</th><th>Швидкість</th><th>Статус</th>
                   </tr>
                 </thead>
                 <tbody></tbody>
               </table>
             </div>
-            <p class="footer-note mt-2">
-              Дані оновлюються кожні 2 секунди через API аналітики.
-            </p>
+            <p class="footer-note">Дані оновлюються кожну 1 секунду.</p>
           </div>
         </section>
-        <!-- SCREEN 2 -->
+        
         <section id="screen2" class="screen">
           <h2 class="section-title">Конструктор симуляції</h2>
+          
           <div id="builderArea">
-            <div class="builder-controls mb-3 d-flex align-items-center gap-2 flex-wrap">
-              <label for="objSelect" class="mb-0">Оберіть об’єкт:</label>
-              <select id="objSelect" class="form-select form-select-sm w-auto"></select>
-              <button id="btnDiagram" class="btn btn-outline-light btn-sm">Діаграма</button>
-              <button id="btnDistance" class="btn btn-outline-light btn-sm">Дистанція</button>
-              <button id="btnAvgSpeed" class="btn btn-outline-light btn-sm">Середня швидкість</button>
-              <button id="btnStops" class="btn btn-outline-light btn-sm">Зупинки</button>
-              <button id="btnToggleMode" class="btn btn-outline-light btn-sm ms-2">Змінити режим</button>
-            </div>
-            <div class="chart-card">
-              <div class="chart-wrapper">
-                <div class="chart-container">
-                  <canvas id="trajectoryChart"></canvas>
+            <div class="builder-layout">
+              
+              <div class="chart-section">
+                <div class="chart-card">
+                  <div class="chart-wrapper">
+                    <div class="chart-container" id="chartContainerBlock">
+                      <canvas id="trajectoryChart"></canvas>
+                    </div>
+                    <div id="builderMap"></div>
+                  </div>
+                </div>
+              </div>
+
+              <div class="controls-section">
+                <div class="builder-controls">
+                  <label for="objSelect">Оберіть об’єкт для аналізу:</label>
+                  <select id="objSelect" class="form-select form-select-sm"></select>
+                  
+                  <hr class="border-secondary my-2 opacity-25">
+                  <label>Інструменти:</label>
+                  <button id="btnDiagram" class="btn btn-outline-light btn-sm tool-btn">📊 Побудувати діаграму</button>
+                  <button id="btnDistance" class="btn btn-outline-light btn-sm tool-btn">📏 Розрахувати дистанцію</button>
+                  <button id="btnAvgSpeed" class="btn btn-outline-light btn-sm tool-btn">🚀 Середня швидкість</button>
+                  <button id="btnStops" class="btn btn-outline-light btn-sm tool-btn">🛑 Кількість зупинок</button>
+                  
+                  <hr class="border-secondary my-2 opacity-25">
+                  
+                  <button id="btnToggleMode" class="btn btn-outline-info btn-sm tool-btn">🗺️ Показати на карті</button>
+
+                  <div id="zoomControls" class="d-flex align-items-center justify-content-between mt-2 p-2 border border-secondary border-opacity-25 rounded bg-dark bg-opacity-25">
+                    <span class="text-label-color small me-2">Масштаб (Графік):</span>
+                    <div class="btn-group" role="group">
+                      <button id="btnZoomOut" class="btn btn-secondary btn-sm px-3">-</button>
+                      <button id="btnZoomIn" class="btn btn-secondary btn-sm px-3">+</button>
+                    </div>
+                  </div>
+                </div>
+
+                <div id="builderResults" class="text-light">
+                  <small class="text-label-color d-block mb-1">Результат:</small>
+                  <span id="resultText">Оберіть інструмент...</span>
                 </div>
               </div>
             </div>
-            <div id="builderResults" class="mt-3 text-light"></div>
-            <div class="who-card mt-4">
+
+            <div class="who-card">
               <h3 class="who-title mb-2">Хто є хто?</h3>
               <p class="who-desc mb-3">Визначте тип для кожного об’єкта, спираючись на карту та аналітику.</p>
               <div class="row g-3">
-                <div class="col-12 col-md-4">
+                <div class="col-4">
                   <label class="form-label mb-1">obj_1</label>
                   <select id="who_obj_1" class="form-select form-select-sm">
-                    <option value="">Оберіть тип</option>
+                    <option value="">Тип...</option>
                     <option value="pedestrian">Пішохід</option>
                     <option value="bike">Велосипед</option>
-                    <option value="car">Автомобіль</option>
+                    <option value="car">Авто</option>
                   </select>
                 </div>
-                <div class="col-12 col-md-4">
+                <div class="col-4">
                   <label class="form-label mb-1">obj_2</label>
                   <select id="who_obj_2" class="form-select form-select-sm">
-                    <option value="">Оберіть тип</option>
+                    <option value="">Тип...</option>
                     <option value="pedestrian">Пішохід</option>
                     <option value="bike">Велосипед</option>
-                    <option value="car">Автомобіль</option>
+                    <option value="car">Авто</option>
                   </select>
                 </div>
-                <div class="col-12 col-md-4">
+                <div class="col-4">
                   <label class="form-label mb-1">obj_3</label>
                   <select id="who_obj_3" class="form-select form-select-sm">
-                    <option value="">Оберіть тип</option>
+                    <option value="">Тип...</option>
                     <option value="pedestrian">Пішохід</option>
                     <option value="bike">Велосипед</option>
-                    <option value="car">Автомобіль</option>
+                    <option value="car">Авто</option>
                   </select>
                 </div>
               </div>
@@ -177,10 +237,12 @@
       </div>
     </div>
   </main>
-  <!-- ===== SCRIPTS ===== -->
+  
   <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
   <script src="https://cdn.datatables.net/1.13.6/js/jquery.dataTables.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
   <script>
     $(function () {
       const table = $('#positionsTable').DataTable({
@@ -193,35 +255,24 @@
           { data: 'longitude', render: d => Number(d).toFixed(5) },
           { data: 'speed', render: v => `${Number(v||0).toFixed(0)} км/год` },
           { data: 'status', render: status => {
-              const v = (status||'').toString();
-              const cls = v === "Stopped" ? 'badge-stopped' : 'badge-moving';
-              return `<span class="status-badge ${cls}">${v}</span>`;
-            }},
+              const cls = status === "Stopped" ? 'badge-stopped' : 'badge-moving';
+              return `<span class="status-badge ${cls}">${status}</span>`;
+          }},
         ],
-        paging: false,
-        searching: false,
-        info: false,
-        order: [[0, 'desc']]
+        paging: false, searching: false, info: false, order: [[0, 'desc']]
       });
-
       setInterval(() => table.ajax.reload(null, false), 2000);
 
-      // UI logic & screen switching
       const screenContainer = document.getElementById('screenContainer');
       const builderBtn = document.getElementById('builderBtn');
       const backBtn = document.getElementById('backBtn');
-      let polling = null;
+      
       function updateBuilderButton() {
         const hasData = table.data().any();
-        builderBtn.disabled = (polling !== null) || !hasData;
+        builderBtn.disabled = !hasData;
       }
-      function handleTableRefresh() {
-        updateBuilderButton();
-        loadObjectOptions();
-      }
-      table.on('xhr', handleTableRefresh);
-      updateBuilderButton();
-
+      table.on('xhr', () => { updateBuilderButton(); loadObjectOptions(); });
+      
       builderBtn.addEventListener('click', () => {
         screenContainer.style.transform = "translateX(-50%)";
         backBtn.style.visibility = "visible";
@@ -235,272 +286,264 @@
       });
 
       const objSelect = document.getElementById('objSelect');
-      const builderResults = document.getElementById('builderResults');
+      const resultText = document.getElementById('resultText');
+      
       const btnDiagram = document.getElementById('btnDiagram');
       const btnDistance = document.getElementById('btnDistance');
       const btnAvgSpeed = document.getElementById('btnAvgSpeed');
       const btnStops = document.getElementById('btnStops');
+      
       const btnToggleMode = document.getElementById('btnToggleMode');
-      const chartWrapper = document.querySelector('.chart-wrapper');
-      const actionButtons = [btnDiagram, btnDistance, btnAvgSpeed, btnStops];
-      const whoSelects = [
-        document.getElementById('who_obj_1'),
-        document.getElementById('who_obj_2'),
-        document.getElementById('who_obj_3'),
-      ];
-      const whoCheckBtn = document.getElementById('whoCheckBtn');
-      const whoResult = document.getElementById('whoResult');
-      let whoAnswers = {};
-      let whoAnswersLoaded = false;
-      const valueMap = {
-        car: 'car',
-        bike: 'bicycle',
-        bicycle: 'bicycle',
-        pedestrian: 'pedestrian',
-      };
+      const zoomControls = document.getElementById('zoomControls');
+      const btnZoomIn = document.getElementById('btnZoomIn');
+      const btnZoomOut = document.getElementById('btnZoomOut');
+      const chartContainerBlock = document.getElementById('chartContainerBlock');
+      const mapContainerBlock = document.getElementById('builderMap');
+
       const chartCtx = document.getElementById('trajectoryChart').getContext('2d');
       let trajectoryChart = null;
-      let isMapMode = false;
-      let currentMetric = 'diagram';
-      let lastDiagram = null;
-      const mapColors = ['#22c55e', '#10b981', '#f97316', '#ef4444', '#38bdf8', '#a855f7'];
+      let currentLimit = 100;
+      
+      let isMapMode = false; 
+      let cachedDiagramData = null; 
+      
+      let builderMap = null;
+      let builderPolyline = null;
 
       async function fetchJSON(url) {
         const resp = await fetch(url);
-        if (!resp.ok) throw new Error(await resp.text() || `HTTP ${resp.status}`);
+        if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
         return resp.json();
       }
+
       function requireObjectId() {
         const v = objSelect.value;
-        if (!v) { builderResults.textContent = "Спочатку оберіть об’єкт."; return null; }
+        if (!v) { 
+           resultText.textContent = "Спочатку оберіть об’єкт."; 
+           resultText.className = "text-warning";
+           return null; 
+        }
+        resultText.className = "";
         return v;
       }
-      function setActionButtonsDisabled(state) {
-        actionButtons.forEach(btn => { btn.disabled = state; });
-        btnToggleMode.disabled = state;
-      }
+
       async function loadObjectOptions() {
         try {
           const ids = await fetchJSON('/analytics/object_ids');
           const current = objSelect.value;
           objSelect.innerHTML = '';
           if (!ids.length) {
-            const opt = document.createElement('option');
-            opt.value = '';
-            opt.textContent = 'Немає об’єктів';
-            objSelect.appendChild(opt);
-            setActionButtonsDisabled(true);
+            objSelect.innerHTML = '<option value="">Немає об’єктів</option>';
             return;
           }
-          ids.forEach((id, idx) => {
+          ids.forEach((id) => {
             const opt = document.createElement('option');
-            opt.value = id;
-            opt.textContent = id;
-            if (id === current || (!current && idx === 0)) {
-              opt.selected = true;
-            }
+            opt.value = id; opt.textContent = id;
+            if (id === current) opt.selected = true;
             objSelect.appendChild(opt);
           });
-          setActionButtonsDisabled(false);
-        } catch (err) {
-          builderResults.textContent = "Не вдалося отримати список об’єктів.";
-          setActionButtonsDisabled(true);
-        }
-      }
-      async function fetchRoleAnswers() {
-        if (whoAnswersLoaded) return;
-        try {
-          const data = await fetchJSON('/object_roles');
-          whoAnswers = data || {};
-          whoAnswersLoaded = true;
-          whoSelects.forEach(select => { select.value = ''; });
-          whoResult.textContent = '';
-          whoResult.className = 'small text-muted';
-        } catch (err) {
-          whoResult.textContent = 'Не вдалося отримати відповіді для перевірки.';
-          whoResult.className = 'small text-warning';
-        }
+        } catch(e){}
       }
 
-      // Chart.js plugin для стилізованих точок у map-mode
-      const mapBackgroundPlugin = {
-        id: 'mapBackgroundPlugin',
-        afterDatasetsDraw(chart) {
-          if (!isMapMode) return;
-          const dataset = chart.data.datasets[0];
-          const meta = chart.getDatasetMeta(0);
-          const ctx = chart.ctx;
-          if (!dataset || !meta) return;
-          ctx.save();
-          dataset.data.forEach((value, index) => {
-            const point = meta.data[index];
-            if (!point) return;
-            const extra = dataset._metaPoints ? dataset._metaPoints[index] : null;
-            let color = mapColors[index % mapColors.length];
-            if (extra && extra.status === 'Stopped') {
-              color = '#ef4444';
-            } else if (extra && extra.speed && extra.speed > 30) {
-              color = '#f97316';
-            }
-            ctx.fillStyle = color;
-            ctx.beginPath();
-            ctx.arc(point.x, point.y, 6, 0, Math.PI * 2);
-            ctx.fill();
-          });
-          ctx.restore();
-        },
-      };
+      function initBuilderMap() {
+        if (builderMap) return;
+        
+        builderMap = L.map('builderMap', {
+            zoomControl: false,
+            attributionControl: false 
+        }).setView([49.840, 24.022], 15);
+        
+        L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+          maxZoom: 20
+        }).addTo(builderMap);
+      }
 
-      function createTrajectoryConfig(labels, points, metaPoints) {
-        const gridColor = isMapMode ? 'rgba(15,23,42,0.4)' : 'rgba(148,163,184,0.2)';
+      function drawPathOnMap(lats, lons) {
+        initBuilderMap();
+        if (builderPolyline) builderMap.removeLayer(builderPolyline);
+        
+        if (!lats || !lats.length) return;
+
+        const latlngs = lats.map((lat, i) => [lat, lons[i]]);
+        
+        builderPolyline = L.polyline(latlngs, {
+          color: '#3B82F6', 
+          weight: 4,
+          opacity: 0.9,
+          lineJoin: 'round'
+        }).addTo(builderMap);
+
+        builderMap.fitBounds(builderPolyline.getBounds(), { padding: [50, 50] });
+        setTimeout(() => builderMap.invalidateSize(), 100);
+      }
+
+      function createChartConfig(labels, points, limit) {
+        const gridColorFunc = (ctx) => (ctx.tick.value === 0) ? 'rgba(255, 255, 255, 0.6)' : 'rgba(255,255,255,0.1)';
+        const gridWidthFunc = (ctx) => (ctx.tick.value === 0) ? 2 : 1;
+
         return {
           type: 'line',
           data: {
-            labels,
-            datasets: [
-              {
+            labels: labels,
+            datasets: [{
                 label: 'Траєкторія',
                 data: points,
-                borderColor: isMapMode ? 'rgba(59,130,246,0.75)' : '#3B82F6',
-                backgroundColor: isMapMode ? 'rgba(59,130,246,0.15)' : 'rgba(59,130,246,0.2)',
-                tension: 0.35,
-                fill: false,
-                pointRadius: isMapMode ? 0 : 3,
-                borderWidth: isMapMode ? 2.5 : 2,
-                parsing: false,
-                _metaPoints: metaPoints || [],
-              },
-            ],
+                borderColor: '#3B82F6',
+                backgroundColor: 'rgba(59, 130, 246, 0.1)',
+                borderWidth: 2,
+                pointRadius: 2,
+                pointHoverRadius: 5,
+                tension: 0.1,
+                fill: false
+            }]
           },
           options: {
             responsive: true,
-            maintainAspectRatio: false,
-            plugins: {
-              legend: {
-                display: true,
-                labels: { color: '#e2e8f0' },
-              },
-            },
+            maintainAspectRatio: true,
+            aspectRatio: 1, 
+            interaction: { mode: 'nearest', intersect: false },
             scales: {
-              x: {
-                type: 'linear',
-                title: { display: true, text: 'X (м)', color: '#9ca3af' },
-                ticks: { color: '#9ca3af' },
-                grid: { color: gridColor },
+              x: { 
+                  type: 'linear', min: -limit, max: limit, 
+                  title: { display: true, text: 'Захід (-) / Схід (+)', color: '#64748b' },
+                  grid: { color: gridColorFunc, lineWidth: gridWidthFunc } 
               },
-              y: {
-                type: 'linear',
-                title: { display: true, text: 'Y (м)', color: '#9ca3af' },
-                ticks: { color: '#9ca3af' },
-                grid: { color: gridColor },
-              },
+              y: { 
+                  type: 'linear', min: -limit, max: limit, 
+                  title: { display: true, text: 'Південь (-) / Північ (+)', color: '#64748b' },
+                  grid: { color: gridColorFunc, lineWidth: gridWidthFunc } 
+              }
             },
-          },
-          plugins: [mapBackgroundPlugin],
+            plugins: { 
+                legend: { display: false },
+                tooltip: { callbacks: { label: (ctx) => `X: ${ctx.parsed.x}м, Y: ${ctx.parsed.y}м` } }
+            }
+          }
         };
       }
 
-      function rebuildChartWithCurrentData() {
-        if (!trajectoryChart) return;
-        const labels = trajectoryChart.data.labels.slice();
-        const dataset = trajectoryChart.data.datasets[0];
-        const points = dataset.data.slice();
-        const metaPoints = dataset._metaPoints || [];
-        trajectoryChart.destroy();
-        trajectoryChart = new Chart(chartCtx, createTrajectoryConfig(labels, points, metaPoints));
-      }
-      function renderChart(diagram) {
-        currentMetric = 'diagram';
-        lastDiagram = diagram;
-        if (trajectoryChart) trajectoryChart.destroy();
-        if (!diagram.x || !diagram.x.length) {
-          builderResults.textContent = "Недостатньо даних для побудови траєкторії.";
-          return;
-        }
-        const xs = diagram.x.map(Number);
-        const ys = diagram.y.map(Number);
-        const labels = xs.map((_, idx) => idx + 1);
-        const points = xs.map((x, idx) => ({ x, y: ys[idx] }));
-        const metaPoints = diagram.meta || [];
-        trajectoryChart = new Chart(chartCtx, createTrajectoryConfig(labels, points, metaPoints));
-        builderResults.textContent = "Діаграма побудована.";
-        if (isMapMode && chartWrapper) chartWrapper.classList.add('map-mode');
-      }
-      async function showMetrics(type) {
-        const objectId = requireObjectId();
-        if (!objectId) return;
-        try {
-          const metrics = await fetchJSON(`/analytics/metrics/${objectId}`);
-          if (type === 'distance') {
-            builderResults.textContent = `Відстань: ${Number(metrics.total_distance_km||0).toFixed(3)} км`;
-          } else if (type === 'avg') {
-            builderResults.textContent = `Середня швидкість: ${Number(metrics.average_speed_kmh||0).toFixed(1)} км/год`;
-          } else if (type === 'stops') {
-            const stopsCount = (metrics.stops||[]).length;
-            builderResults.textContent = stopsCount ? `Зупинки: ${stopsCount} зупинок` : "Зупинки: відсутні";
+      function renderChart(diagram, preserveScale = false) {
+        cachedDiagramData = diagram;
+        
+        if (isMapMode) {
+          if (diagram.lats && diagram.lats.length) {
+            drawPathOnMap(diagram.lats, diagram.lons);
+            resultText.innerHTML = `<span class="text-info">Карта побудована.</span>`;
           }
-          currentMetric = type;
-          if (type !== 'diagram') {
-            if (chartWrapper) chartWrapper.classList.remove('map-mode');
-            isMapMode = false;
-            btnToggleMode.textContent = "Змінити режим";
+        } else {
+          const xs = diagram.x.map(Number);
+          const ys = diagram.y.map(Number);
+          
+          if (!preserveScale) {
+              const maxVal = Math.max(20, ...xs.map(Math.abs), ...ys.map(Math.abs));
+              currentLimit = Math.ceil(maxVal / 10) * 10;
           }
-        } catch (err) {
-          builderResults.textContent = "Не вдалося отримати метрики.";
+
+          const points = xs.map((x, i) => ({ x, y: ys[i] }));
+          
+          if (trajectoryChart) trajectoryChart.destroy();
+          trajectoryChart = new Chart(chartCtx, createChartConfig(xs.map((_,i)=>i), points, currentLimit));
+          
+          resultText.innerHTML = `<span class="text-info">Діаграма побудована.</span><br><span class="text-label-color small">Масштаб: ±${Math.round(currentLimit)}м.</span>`;
         }
       }
 
+      
       btnDiagram.addEventListener('click', async () => {
-        const objectId = requireObjectId();
-        if (!objectId) return;
-        currentMetric = 'diagram';
+        const id = requireObjectId(); if (!id) return;
         try {
-          const diagram = await fetchJSON(`/analytics/diagram/${objectId}`);
-          renderChart(diagram);
-        } catch (err) {
-          builderResults.textContent = "Не вдалося побудувати траєкторію.";
-        }
+          const data = await fetchJSON(`/analytics/diagram/${id}`);
+          renderChart(data, false); 
+        } catch(e) { resultText.textContent = "Помилка завантаження."; }
       });
-      btnDistance.addEventListener('click', () => showMetrics('distance'));
-      btnAvgSpeed.addEventListener('click', () => showMetrics('avg'));
-      btnStops.addEventListener('click', () => showMetrics('stops'));
+
+      btnZoomIn.addEventListener('click', () => {
+        if (!cachedDiagramData) {
+            resultText.textContent = "Спочатку побудуйте діаграму.";
+            return;
+        }
+        currentLimit = Math.max(10, currentLimit * 0.7);
+        renderChart(cachedDiagramData, true);
+      });
+
+      btnZoomOut.addEventListener('click', () => {
+        if (!cachedDiagramData) {
+            resultText.textContent = "Спочатку побудуйте діаграму.";
+            return;
+        }
+        currentLimit = currentLimit * 1.3;
+        renderChart(cachedDiagramData, true);
+      });
 
       btnToggleMode.addEventListener('click', () => {
         isMapMode = !isMapMode;
-        if (chartWrapper) {
-          chartWrapper.classList.toggle('map-mode', isMapMode);
+        
+        if (isMapMode) {
+          chartContainerBlock.style.display = 'none';
+          mapContainerBlock.style.display = 'block';
+          zoomControls.style.opacity = '0.3';
+          btnToggleMode.textContent = "📈 Повернути графік";
+          if (cachedDiagramData) drawPathOnMap(cachedDiagramData.lats, cachedDiagramData.lons);
+        } else {
+          mapContainerBlock.style.display = 'none';
+          chartContainerBlock.style.display = 'block';
+          zoomControls.style.opacity = '1';
+          btnToggleMode.textContent = "🗺️ Показати на карті";
+          if (cachedDiagramData) renderChart(cachedDiagramData, false);
         }
-        btnToggleMode.textContent = isMapMode ? 'Режим: карта' : 'Режим: діаграма';
-        rebuildChartWithCurrentData();
       });
 
+      btnDistance.addEventListener('click', async () => {
+         const id = requireObjectId(); if(!id) return;
+         const d = await fetchJSON(`/analytics/metrics/${id}`);
+         resultText.textContent = `Відстань: ${d.total_distance_km} км`;
+      });
+      btnAvgSpeed.addEventListener('click', async () => {
+         const id = requireObjectId(); if(!id) return;
+         const d = await fetchJSON(`/analytics/metrics/${id}`);
+         resultText.textContent = `Швидкість: ${d.average_speed_kmh} км/год`;
+      });
+      btnStops.addEventListener('click', async () => {
+         const id = requireObjectId(); if(!id) return;
+         const d = await fetchJSON(`/analytics/metrics/${id}`);
+         resultText.textContent = `Зупинок: ${d.stops.length}`;
+      });
+
+      const whoCheckBtn = document.getElementById('whoCheckBtn');
+      const whoResult = document.getElementById('whoResult');
+      let whoAnswers = {};
+      
+      async function fetchRoleAnswers() {
+         whoAnswers = await fetchJSON('/object_roles');
+      }
+      
       whoCheckBtn.addEventListener('click', () => {
-        whoResult.className = 'small text-muted';
-        if (!whoAnswersLoaded || !Object.keys(whoAnswers).length) {
-          whoResult.textContent = 'Не вдалося отримати відповіді для перевірки.';
-          whoResult.className = 'small text-warning';
-          return;
+        const s1 = document.getElementById('who_obj_1').value;
+        const s2 = document.getElementById('who_obj_2').value;
+        const s3 = document.getElementById('who_obj_3').value;
+        
+        if (!s1 || !s2 || !s3) {
+            whoResult.className = "text-warning";
+            whoResult.textContent = "Оберіть всі варіанти!";
+            return;
         }
-        const empty = whoSelects.filter(select => !select.value);
-        if (empty.length) {
-          whoResult.textContent = 'Заповніть усі типи для obj_1, obj_2 та obj_3.';
-          whoResult.className = 'small text-warning';
-          return;
+        
+        const mapVal = { 'car': 'car', 'bike': 'bicycle', 'pedestrian': 'pedestrian' };
+        
+        let ok = true;
+        if (mapVal[s1] !== whoAnswers['obj_1']) ok = false;
+        if (mapVal[s2] !== whoAnswers['obj_2']) ok = false;
+        if (mapVal[s3] !== whoAnswers['obj_3']) ok = false;
+        
+        if (ok) {
+            whoResult.className = "text-success";
+            whoResult.textContent = "Все вірно! Ви ідентифікували об'єкти.";
+        } else {
+            whoResult.className = "text-danger";
+            whoResult.textContent = "Помилка. Спробуйте ще раз.";
         }
-        let hasError = false;
-        whoSelects.forEach(select => {
-          const objId = select.id.replace('who_', '');
-          const expected = whoAnswers[objId];
-          const normalized = valueMap[select.value] || select.value;
-          if (expected && normalized !== expected) hasError = true;
-        });
-        whoResult.textContent = !hasError
-          ? 'Все вірно! Ви правильно ідентифікували всі об’єкти.'
-          : 'Є помилки. Перевірте, чи правильно визначили типи усіх об’єктів.';
-        whoResult.className = !hasError ? 'small text-success' : 'small text-danger';
       });
 
-      loadObjectOptions();
     });
   </script>
 </body>

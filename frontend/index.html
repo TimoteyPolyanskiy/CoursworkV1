@@ -1,86 +1,194 @@
-﻿<!--
-  Simple Leaflet frontend for showing latest positions of all objects.
-  Fetches /last_positions every 2 seconds and updates markers on the map.
--->
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="uk">
   <head>
     <meta charset="UTF-8" />
-    <meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
-    <title>Моніторинг доставки — MVP</title>
-    <link
-      rel="stylesheet"
-      href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
-      integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY="
-      crossorigin=""
-    />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Моніторинг доставки — Головна</title>
+    
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css">
+    
     <style>
-      html, body { height: 100%; margin: 0; }
-      #map { height: 100vh; width: 100vw; }
-      .leaflet-popup-content { font-size: 14px; }
+      body { 
+        margin: 0; 
+        padding: 0; 
+        height: 100vh; 
+        display: flex; 
+        flex-direction: column; 
+        background: #121212; 
+        font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+      }
+
+      .app-header {
+        background: #1E1E2E;
+        height: 64px;
+        padding: 0 20px;
+        box-shadow: 0 4px 10px rgba(0,0,0,0.3);
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        z-index: 1001;
+        flex-shrink: 0;
+      }
+      
+      .app-title { 
+        color: #E2E8F0; 
+        font-size: 20px; 
+        font-weight: 600; 
+        margin: 0; 
+      }
+
+      .header-controls {
+        display: flex;
+        gap: 15px;
+      }
+
+      #mapWrapper {
+        position: relative;
+        flex-grow: 1;
+        width: 100%;
+      }
+      
+      #map { 
+        height: 100%;
+        width: 100%;
+        z-index: 1; 
+      }
+
       .legend {
         position: absolute;
-        top: 10px;
-        left: 10px;
-        background: rgba(255,255,255,0.9);
-        padding: 8px 10px;
-        border-radius: 6px;
-        box-shadow: 0 1px 4px rgba(0,0,0,0.2);
-        z-index: 999;
+        top: 20px; 
+        left: 20px;
+        background: rgba(255, 255, 255, 0.95);
+        padding: 12px 15px;
+        border-radius: 8px;
+        box-shadow: 0 2px 5px rgba(0,0,0,0.2);
+        z-index: 1000;
+        font-size: 14px;
+        line-height: 1.5;
+        border: 1px solid #ccc;
+        color: #333;
+        min-width: 180px;
       }
-      /* Custom directional arrow marker (Telegram-like) */
+
+      .btn-custom {
+        font-weight: 600;
+        min-width: 160px;
+      }
     </style>
   </head>
   <body>
-    <div class="legend">
-      <strong>Моніторинг доставки</strong><br />
-      Оновлення кожні 2 с.
+    
+    <header class="app-header">
+      <h1 class="app-title">📍 Система моніторингу</h1>
+      
+      <div class="header-controls">
+        <button id="btnSimToggle" class="btn btn-success btn-sm btn-custom" onclick="toggleSimulation()">
+          ▶ Запуск симуляції
+        </button>
+        
+        <a href="/monitor" target="_blank" class="btn btn-outline-info btn-sm btn-custom d-flex align-items-center justify-content-center">
+          📊 Моніторинг
+        </a>
+      </div>
+    </header>
+
+    <div id="mapWrapper">
+      <div class="legend">
+        <strong>Статус системи</strong><br />
+        <span id="updateStatus" style="color: #666;">Очікування даних...</span>
+      </div>
+      
+      <div id="map"></div>
     </div>
-    <div id="map"></div>
 
-    <script
-      src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
-      integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo="
-      crossorigin=""
-    ></script>
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    
     <script>
-      // Ensure proper UI text in case of encoding issues in source
-      (function applyUiText() {
-        try {
-          document.title = '\u041c\u043e\u043d\u0456\u0442\u043e\u0440\u0438\u043d\u0433 \u0434\u043e\u0441\u0442\u0430\u0432\u043a\u0438 \u2014 MVP';
-          const legend = document.querySelector('.legend');
-          if (legend) legend.innerHTML = '<strong>\u041c\u043e\u043d\u0456\u0442\u043e\u0440\u0438\u043d\u0433 \u0434\u043e\u0441\u0442\u0430\u0432\u043a\u0438</strong><br />\u041e\u043d\u043e\u0432\u043b\u0435\u043d\u043d\u044f \u043a\u043e\u0436\u043d\u0456 2 \u0441.';
-        } catch {}
-      })();
 
-      const map = L.map('map').setView([49.8397, 24.0297], 12);
+      const map = L.map('map', { zoomControl: false }).setView([49.8397, 24.0297], 13);
+
+      L.control.zoom({
+        position: 'bottomright'
+      }).addTo(map);
 
       L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-        maxZoom: 20,
+        maxZoom: 19,
         attribution: '&copy; OpenStreetMap contributors'
       }).addTo(map);
 
       const markers = new Map();
 
+      const btnSimToggle = document.getElementById('btnSimToggle');
+      let isSimRunning = false;
+
+      async function checkSimStatus() {
+        try {
+          const res = await fetch('/simulation/status');
+          const data = await res.json();
+          updateSimButton(data.running);
+        } catch (e) {
+          console.error("Не вдалося отримати статус симуляції. Чи запущено main.py?");
+        }
+      }
+
+      function updateSimButton(running) {
+        isSimRunning = running;
+        if (running) {
+          btnSimToggle.textContent = "⏹ Зупинка симуляції";
+          btnSimToggle.classList.remove('btn-success');
+          btnSimToggle.classList.add('btn-danger');
+        } else {
+          btnSimToggle.textContent = "▶ Запуск симуляції";
+          btnSimToggle.classList.remove('btn-danger');
+          btnSimToggle.classList.add('btn-success');
+        }
+      }
+
+      async function toggleSimulation() {
+        const endpoint = isSimRunning ? '/simulation/stop' : '/simulation/start';
+        btnSimToggle.disabled = true; 
+        
+        try {
+          const res = await fetch(endpoint, { method: 'POST' });
+          const data = await res.json();
+          
+          if (data.status === 'started' || data.status === 'already_running') {
+            updateSimButton(true);
+          } else if (data.status === 'stopped' || data.status === 'not_running') {
+            updateSimButton(false);
+          }
+        } catch (err) {
+          alert("Помилка з'єднання з сервером. Перевірте, чи запущено main.py");
+        } finally {
+          btnSimToggle.disabled = false;
+        }
+      }
+
+      checkSimStatus();
+
       function upsertMarker(pos) {
         const { object_id, lat, lon, speed, ts } = pos;
-        const title = `${object_id}`;
-        const LBL_COORDS = '\u041a\u043e\u043e\u0440\u0434\u0438\u043d\u0430\u0442\u0438';
-        const LBL_SPEED  = '\u0428\u0432\u0438\u0434\u043a\u0456\u0441\u0442\u044c';
-        const LBL_TIME   = '\u0427\u0430\u0441';
-        const popup = `
-          <b>${object_id}</b><br/>
-          ${LBL_COORDS}: ${lat.toFixed(5)}, ${lon.toFixed(5)}<br/>
-          ${LBL_SPEED}: ${
-            speed === null ? '-' : `${Math.round(speed)} \u043a\u043c/\u0433\u043e\u0434`
-          }<br/>
-          ${LBL_TIME}: ${ts}
+        
+        const popupContent = `
+          <div style="font-size:14px; color: #333;">
+            <b>${object_id}</b><br/>
+            Швидкість: ${Math.round(speed)} км/год<br/>
+            Час: ${new Date(ts).toLocaleTimeString()}
+          </div>
         `;
+
         if (markers.has(object_id)) {
           const m = markers.get(object_id);
-          m.setLatLng([lat, lon]).bindPopup(popup);
+          m.setLatLng([lat, lon]);
+          
+          if (m.getPopup()) {
+             m.getPopup().setContent(popupContent);
+          } else {
+             m.bindPopup(popupContent);
+          }
         } else {
-          const m = L.marker([lat, lon], { title }).addTo(map).bindPopup(popup);
+          const m = L.marker([lat, lon]).addTo(map).bindPopup(popupContent);
           markers.set(object_id, m);
         }
       }
@@ -90,47 +198,35 @@
           const res = await fetch('/last_positions');
           if (!res.ok) throw new Error('HTTP ' + res.status);
           const data = await res.json();
+          
           const ids = new Set();
           data.forEach((pos) => {
             ids.add(pos.object_id);
             upsertMarker(pos);
           });
-          // Remove markers for stale or courier_* IDs
+
+          const statusEl = document.getElementById('updateStatus');
+          if (data.length > 0) {
+            statusEl.innerHTML = `Активні об'єкти: <b>${data.length}</b><br/>Останнє оновлення: ${new Date().toLocaleTimeString()}`;
+            statusEl.style.color = '#28a745';
+          } else {
+            statusEl.innerHTML = `Немає даних<br/>(Симуляцію зупинено?)`;
+            statusEl.style.color = '#dc3545';
+          }
+
           Array.from(markers.keys()).forEach((id) => {
-            if (id.startsWith("courier_") || !ids.has(id)) {
-              const marker = markers.get(id);
-              if (marker) {
-                map.removeLayer(marker);
-              }
+            if (!ids.has(id)) {
+              map.removeLayer(markers.get(id));
               markers.delete(id);
             }
           });
         } catch (err) {
-          console.error('Failed to fetch /last_positions', err);
+          console.error('Fetch error', err);
         }
       }
 
-      // Initial fetch + polling every 2 seconds
       fetchPositions();
-      setInterval(fetchPositions, 2000);
+      setInterval(fetchPositions, 1000);
     </script>
   </body>
-  </html>
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+</html>

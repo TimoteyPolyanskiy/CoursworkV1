@@ -1,9 +1,7 @@
-"""
-Простий FastAPI бекенд для відстеження доставки (TimescaleDB + PostGIS).
-Ендпоїнти: /track, /last_positions, /map
-"""
-
 import os
+import sys
+import subprocess
+import signal
 from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Optional
@@ -11,7 +9,7 @@ from typing import Dict, List, Optional
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
-from pydantic import BaseModel, Field, validator
+from pydantic import BaseModel, validator
 from sqlalchemy import create_engine, text
 from app.builder import (
     compute_average_speed,
@@ -20,293 +18,177 @@ from app.builder import (
     path_to_xy,
 )
 
-
-# Налаштування середовища (див. docker-compose)
 DB_HOST = os.getenv("DB_HOST", "localhost")
 DB_PORT = int(os.getenv("DB_PORT", "5432"))
 DB_NAME = os.getenv("DB_NAME", "delivery_v2")
 DB_USER = os.getenv("DB_USER", "postgres")
 DB_PASSWORD = os.getenv("DB_PASSWORD", "admintp")
 
-# Шлях до фронтенду
 APP_BASE_DIR = Path(os.getenv("APP_BASE_DIR", Path(__file__).resolve().parent.parent))
 FRONTEND_INDEX = APP_BASE_DIR / "frontend" / "index.html"
 FRONTEND_MONITOR = APP_BASE_DIR / "frontend" / "monitor.html"
 
-# In-memory positions log (FORMAT A)
 positions_log: List[dict] = []
-# Object roles mapping provided by simulator
 object_roles: Dict[str, str] = {}
 
+sim_process: Optional[subprocess.Popen] = None
+
+START_LAT = 49.840048
+START_LON = 24.021917
 
 class TrackPayload(BaseModel):
-    """Модель даних для /track."""
-
-    object_id: str = Field(..., description="Унікальний ідентифікатор об'єкта")
-    lat: float = Field(..., description="Широта (WGS84)")
-    lon: float = Field(..., description="Довгота (WGS84)")
-    speed: Optional[float] = Field(None, description="Speed (km/h, optional)")
+    object_id: str
+    lat: float
+    lon: float
+    speed: Optional[float] = None
 
     @validator("object_id")
-    def validate_object_id(cls, v: str) -> str:
-        if not v.startswith("obj_"):
-            raise ValueError("object_id must start with 'obj_'")
+    def validate_id(cls, v):
+        if not v.startswith("obj_"): raise ValueError("Invalid ID")
         return v
 
-    @validator("lat")
-    def validate_lat(cls, v: float) -> float:
-        if not (-90.0 <= v <= 90.0):
-            raise ValueError("lat must be between -90 and 90")
-        return v
+app = FastAPI()
+app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
 
-    @validator("lon")
-    def validate_lon(cls, v: float) -> float:
-        if not (-180.0 <= v <= 180.0):
-            raise ValueError("lon must be between -180 and 180")
-        return v
-
-
-app = FastAPI(title="Delivery Tracking MVP", version="0.1.0")
-
-# CORS
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
-
-DATABASE_URL = (
-    f"postgresql+psycopg2://{DB_USER}:{DB_PASSWORD}@{DB_HOST}:{DB_PORT}/{DB_NAME}"
-)
+DATABASE_URL = f"postgresql+psycopg2://{DB_USER}:{DB_PASSWORD}@{DB_HOST}:{DB_PORT}/{DB_NAME}"
 engine = create_engine(DATABASE_URL, pool_pre_ping=True, future=True)
 
-
-@app.get("/health")
-def health() -> dict:
-    """Перевірка стану сервісу."""
-    return {"status": "ok"}
-
-
-@app.get("/health/db")
-def health_db() -> dict:
-    """Simple DB connectivity check."""
+@app.on_event("startup")
+def startup_event():
+    print("System Startup: Cleaning DB...")
+    positions_log.clear()
     try:
         with engine.begin() as conn:
-            conn.execute(text("SELECT 1"))
+            conn.execute(text("TRUNCATE positions RESTART IDENTITY;"))
+            
+            for i in range(1, 4):
+                obj_id = f"obj_{i}"
+                conn.execute(text(
+                    "INSERT INTO positions (object_id, lat, lon, speed, geom) "
+                    "VALUES (:id, :lat, :lon, 0, ST_SetSRID(ST_MakePoint(:lon, :lat), 4326)::geography)"
+                ), {"id": obj_id, "lat": START_LAT, "lon": START_LON})
+                
+                positions_log.append({
+                    "iteration_id": i,
+                    "timestamp": datetime.utcnow().isoformat() + "Z",
+                    "object_id": obj_id,
+                    "latitude": START_LAT,
+                    "longitude": START_LON,
+                    "speed": 0, 
+                    "status": "Stopped"
+                })
+        print(f"Spawned at: {START_LAT}, {START_LON}")
     except Exception as e:
-        print("DB error in /health/db:", repr(e))
-        raise HTTPException(status_code=500, detail=f"DB health failed: {e}")
-    return {"db": "ok"}
+        print(f"Startup Error: {e}")
+
+
+@app.get("/simulation/status")
+def get_sim_status():
+    global sim_process
+    is_running = sim_process is not None and sim_process.poll() is None
+    return {"running": is_running}
+
+@app.post("/simulation/start")
+def start_simulation():
+    global sim_process
+    if sim_process is not None and sim_process.poll() is None:
+        return {"status": "already_running"}
+    
+    try:
+        sim_process = subprocess.Popen([sys.executable, "simulator.py"])
+        return {"status": "started", "pid": sim_process.pid}
+    except Exception as e:
+        return JSONResponse({"status": "error", "message": str(e)}, status_code=500)
+
+@app.post("/simulation/stop")
+def stop_simulation():
+    global sim_process
+    if sim_process is None:
+        return {"status": "not_running"}
+    
+    try:
+        sim_process.terminate()
+        try:
+            sim_process.wait(timeout=2)
+        except subprocess.TimeoutExpired:
+            sim_process.kill()
+        
+        sim_process = None
+        return {"status": "stopped"}
+    except Exception as e:
+        return JSONResponse({"status": "error", "message": str(e)}, status_code=500)
 
 
 @app.post("/track")
-def track_position(payload: TrackPayload) -> JSONResponse:
-    """Приймає одну позицію об'єкта та зберігає в БД."""
+def track_position(payload: TrackPayload):
     try:
         with engine.begin() as conn:
-            conn.execute(
-                text(
-                    """
-                    INSERT INTO positions (object_id, lat, lon, speed, geom)
-                    VALUES (:object_id, :lat, :lon, :speed,
-                            ST_SetSRID(ST_MakePoint(:lon, :lat), 4326)::geography)
-                    """
-                ),
-                {
-                    "object_id": payload.object_id,
-                    "lat": payload.lat,
-                    "lon": payload.lon,
-                    "speed": payload.speed,
-                },
-            )
+            conn.execute(text(
+                "INSERT INTO positions (object_id, lat, lon, speed, geom) "
+                "VALUES (:id, :lat, :lon, :spd, ST_SetSRID(ST_MakePoint(:lon, :lat), 4326)::geography)"
+            ), {"id": payload.object_id, "lat": payload.lat, "lon": payload.lon, "spd": payload.speed})
     except Exception as e:
-        print("DB error in /track:", repr(e))
-        raise HTTPException(status_code=500, detail=f"DB insert failed: {e}")
+        return JSONResponse({"status": "error"}, status_code=500)
 
-    # Append to in-memory log using FORMAT A and safe types
-    timestamp = datetime.utcnow().replace(microsecond=0).isoformat() + "Z"
-    raw_speed = float(payload.speed) if payload.speed is not None else 0.0
-    speed_int = int(round(raw_speed)) if raw_speed else 0
-    status = "Stopped" if raw_speed <= 0.5 else "Moving"
-    positions_log.append(
-        {
-            "iteration_id": len(positions_log) + 1,
-            "timestamp": timestamp,
-            "object_id": payload.object_id,
-            "latitude": float(payload.lat),
-            "longitude": float(payload.lon),
-            "speed": speed_int,
-            "status": status,
-        }
-    )
-
-    return JSONResponse({"status": "ok"})
-
+    spd = int(round(payload.speed or 0))
+    positions_log.append({
+        "iteration_id": len(positions_log) + 1,
+        "timestamp": datetime.utcnow().replace(microsecond=0).isoformat() + "Z",
+        "object_id": payload.object_id,
+        "latitude": payload.lat,
+        "longitude": payload.lon,
+        "speed": spd,
+        "status": "Stopped" if spd <= 1.0 else "Moving",
+    })
+    return {"status": "ok"}
 
 @app.get("/last_positions")
-def last_positions() -> List[dict]:
-    """Остання позиція для кожного об'єкта."""
-    sql = text(
-        """
-        SELECT DISTINCT ON (object_id)
-            object_id, ts, lat, lon, speed
-        FROM positions
-        ORDER BY object_id, ts DESC
-        """
-    )
+def last_positions():
     try:
         with engine.begin() as conn:
-            rows = conn.execute(sql).mappings().all()
-            return [
-                {
-                    "object_id": r["object_id"],
-                    "ts": r["ts"].isoformat(),
-                    "lat": float(r["lat"]),
-                    "lon": float(r["lon"]),
-                    "speed": (
-                        int(round(float(r["speed"])))
-                        if r["speed"] is not None
-                        else None
-                    ),
-                }
-                for r in rows
-            ]
-    except Exception as e:
-        print("DB error in /last_positions:", repr(e))
-        raise HTTPException(status_code=500, detail=f"DB query failed: {e}")
-
+            rows = conn.execute(text(
+                "SELECT DISTINCT ON (object_id) object_id, ts, lat, lon, speed FROM positions ORDER BY object_id, ts DESC"
+            )).mappings().all()
+            return [{
+                "object_id": r["object_id"],
+                "ts": r["ts"].isoformat(),
+                "lat": float(r["lat"]),
+                "lon": float(r["lon"]),
+                "speed": int(round(r["speed"] or 0))
+            } for r in rows]
+    except Exception:
+        return []
 
 @app.get("/")
-def root() -> RedirectResponse:
-    """Редірект на інтерфейс мапи."""
-    return RedirectResponse(url="/map")
-
-
+def root(): return RedirectResponse(url="/map")
 @app.get("/map")
-def map_page() -> FileResponse:
-    """Повертає HTML сторінку з мапою."""
-    if not FRONTEND_INDEX.exists():
-        raise HTTPException(
-            status_code=500,
-            detail=f"Frontend index not found at {FRONTEND_INDEX}",
-        )
-    return FileResponse(FRONTEND_INDEX)
-
-
+def map_page(): return FileResponse(FRONTEND_INDEX)
 @app.get("/monitor")
-def monitor_page() -> FileResponse:
-    """Serve monitoring dashboard."""
-    if not FRONTEND_MONITOR.exists():
-        raise HTTPException(
-            status_code=500,
-            detail=f"Frontend monitor not found at {FRONTEND_MONITOR}",
-        )
-    return FileResponse(FRONTEND_MONITOR)
-
-
+def monitor_page(): return FileResponse(FRONTEND_MONITOR)
 @app.get("/object_roles")
-def get_object_roles_endpoint() -> Dict[str, str]:
-    """Return the latest object role assignments."""
-    return object_roles
-
-
+def get_roles(): return object_roles
 @app.post("/object_roles")
-def set_object_roles_endpoint(mapping: Dict[str, str]) -> dict:
-    """Update the current role mapping (called by simulator)."""
+def set_roles(m: Dict[str, str]):
     object_roles.clear()
-    for key, value in mapping.items():
-        object_roles[str(key)] = str(value)
-    return {"status": "ok", "count": len(object_roles)}
-
-
+    object_roles.update(m)
+    return {"status": "ok"}
 @app.get("/positions_log")
-def get_positions_log() -> List[dict]:
-    """Return in-memory positions log in FORMAT A with safe JSON types."""
-    return [
-        {
-            "iteration_id": int(entry["iteration_id"]),
-            "timestamp": str(entry["timestamp"]),
-            "object_id": str(entry["object_id"]),
-            "latitude": float(entry["latitude"]),
-            "longitude": float(entry["longitude"]),
-            "speed": int(entry["speed"]),
-            "status": str(entry["status"]),
-        }
-        for entry in positions_log
-    ]
-
-
-@app.get("/object_list")
-def get_object_list() -> List[str]:
-    """Return sorted list of unique object IDs from the log."""
-    uniq = sorted({entry["object_id"] for entry in positions_log})
-    return uniq
-
-
-@app.get("/object_path")
-def get_object_path(object_id: str) -> List[dict]:
-    """Return ordered path for the given object from in-memory log."""
-    filtered = [
-        {
-            "iteration_id": entry["iteration_id"],
-            "latitude": entry["latitude"],
-            "longitude": entry["longitude"],
-            "timestamp": entry["timestamp"],
-        }
-        for entry in positions_log
-        if entry["object_id"] == object_id
-    ]
-    filtered.sort(key=lambda e: e["iteration_id"])
-    return filtered
-
-
-def _analytics_path(object_id: str) -> List[dict]:
-    path = [
-        {
-            "iteration_id": int(entry["iteration_id"]),
-            "timestamp": str(entry["timestamp"]),
-            "latitude": float(entry["latitude"]),
-            "longitude": float(entry["longitude"]),
-            "speed": float(entry["speed"]),
-        }
-        for entry in positions_log
-        if entry["object_id"] == object_id
-    ]
-    path.sort(key=lambda e: e["iteration_id"])
-    return path
-
-
+def get_log(): return positions_log
 @app.get("/analytics/object_ids")
-def analytics_object_ids() -> List[str]:
-    return sorted({entry["object_id"] for entry in positions_log})
-
-
-@app.get("/analytics/path/{object_id}")
-def analytics_path(object_id: str) -> List[dict]:
-    return _analytics_path(object_id)
-
-
+def get_ids(): return sorted({e["object_id"] for e in positions_log})
 @app.get("/analytics/metrics/{object_id}")
-def analytics_metrics(object_id: str) -> dict:
-    path = _analytics_path(object_id)
+def get_metrics(object_id: str):
+    path = [p for p in positions_log if p["object_id"] == object_id]
     return {
         "total_distance_km": compute_total_distance(path),
         "average_speed_kmh": compute_average_speed(path),
         "stops": detect_stops(path),
     }
-
-
 @app.get("/analytics/diagram/{object_id}")
-def analytics_diagram(object_id: str) -> dict:
-    path = _analytics_path(object_id)
+def get_diagram(object_id: str):
+    path = [p for p in positions_log if p["object_id"] == object_id]
     return path_to_xy(path)
 
-
-# Локальний запуск (поза контейнером)
 if __name__ == "__main__":
     import uvicorn
-
     uvicorn.run("app.main:app", host="0.0.0.0", port=8000, reload=True)

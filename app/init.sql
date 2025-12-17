@@ -1,11 +1,14 @@
--- Initializes the PostgreSQL database with TimescaleDB + PostGIS for tracking.
--- Creates extensions, table `positions`, indexes, and converts it to a hypertable.
+-- Підключення необхідних розширень
 
--- Enable required extensions
+-- PostGIS: додає підтримку геопросторових типів даних (Geography/Geometry) та функцій
 CREATE EXTENSION IF NOT EXISTS postgis;
+
+-- TimescaleDB: оптимізує PostgreSQL для роботи з часовими рядами (Time-Series)
 CREATE EXTENSION IF NOT EXISTS timescaledb;
 
--- Create the positions table if it doesn't exist
+-- Створення таблиці для зберігання телеметрії
+
+-- Використовується тип GEOGRAPHY(Point, 4326) для точних розрахунків на сфероїді
 CREATE TABLE IF NOT EXISTS positions (
     id        BIGSERIAL PRIMARY KEY,
     object_id TEXT NOT NULL,
@@ -16,10 +19,15 @@ CREATE TABLE IF NOT EXISTS positions (
     geom      GEOGRAPHY(Point, 4326) NOT NULL
 );
 
--- Convert to hypertable on column ts
+-- Конвертація таблиці у гіпертаблицю (Hypertable)
+
+-- Забезпечує автоматичне партиціонування даних по колонці часу 'ts'
 SELECT create_hypertable('positions', 'ts', if_not_exists => TRUE);
 
--- Helpful indexes
-CREATE INDEX IF NOT EXISTS idx_positions_object_ts ON positions (object_id, ts DESC);
-CREATE INDEX IF NOT EXISTS idx_positions_geom ON positions USING GIST (geom);
+-- Створення індексів для оптимізації продуктивності
 
+-- Композитний B-Tree індекс: пришвидшує вибірку історії руху конкретного об'єкта
+CREATE INDEX IF NOT EXISTS idx_positions_object_ts ON positions (object_id, ts DESC);
+
+-- Просторовий GIST індекс: пришвидшує геометричні запити (напр. пошук у радіусі)
+CREATE INDEX IF NOT EXISTS idx_positions_geom ON positions USING GIST (geom);

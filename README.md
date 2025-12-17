@@ -1,73 +1,91 @@
-# Delivery Tracking MVP
+# GeoMonitoring_MVP
 
-Короткий приклад сервісу для відстеження об’єктів у реальному часі:
-- бекенд на FastAPI (Python)
-- PostgreSQL з TimescaleDB + PostGIS (через Docker)
-- проста мапа на Leaflet (`/map`)
-- опціональний симулятор позицій (`simulator.py`)
+Система географічного моніторингу об'єктів у реальному часі. 
+Проект реалізує повний цикл обробки телеметрії: 
+генерацію трафіку, збереження геопросторових даних, аналітику та візуалізацію.
 
-## Структура
+Прототип розроблено в рамках курсової роботи для демонстрації роботи з PostGIS та TimescaleDB.
 
-```
-delivery_mvp/
-  app/
-    main.py          # FastAPI: /track, /last_positions, /map
-    requirements.txt # Залежності бекенду
-    init.sql         # Розширення, таблиця positions, індекси, hypertable
-  frontend/
-    index.html       # Проста сторінка з мапою (Leaflet)
-  simulator.py      # Симулятор відправки позицій на бекенд
-  docker-compose.yml# Сервіси: db, app, pgadmin
-```
+## Структура проекту
 
-## Запуск
+GeoMonitoring_MVP/
+├── app/
+│   ├── main.py            # Основний сервер (FastAPI)
+│   ├── requirements.txt   # Залежності Python
+│   └── init.sql           # SQL-скрипт ініціалізації БД
+├── frontend/
+│   ├── index.html         # Мапа реального часу (Leaflet)
+│   └── monitor.html       # Аналітичний дашборд
+└── simulator.py           # Симулятор руху (клієнт OSRM)
 
-Docker (база, API, pgAdmin):
+## Попередні вимоги
 
-```
-cd delivery_mvp
-docker compose up --build
-```
+Для роботи системи необхідно встановити:
+1. Python 3.10 або новіше.
+2. PostgreSQL 14 або новіше.
+3. Розширення PostgreSQL: postgis, timescaledb.
 
-Порти:
-- db: 5432 (Postgres + TimescaleDB + PostGIS)
-- app: 8000 (FastAPI)
-- pgadmin: 5050 (pgAdmin)
+## Інсталяція та Запуск
 
-pgAdmin: `http://localhost:5050` (email: `admin@example.com`, пароль: `admin`).
-Підключення до БД в pgAdmin: host `db`, port `5432`, user `postgres`, password `postgres`, db `delivery`.
+1. Налаштування бази даних
+Створіть базу даних monitoring_db та виконайте скрипт ініціалізації:
 
-Зупинка:
+psql -U postgres -d monitoring_db -f app/init.sql
 
-```
-docker compose down
-```
+(Переконайтеся, що облікові дані у файлі app/main.py відповідають вашим налаштуванням PostgreSQL).
 
-## Ендпоїнти
+2. Встановлення залежностей
+Рекомендується використовувати віртуальне середовище (venv).
 
-- `GET /map` — сторінка з мапою
-- `GET /docs` — Swagger UI
-- `GET /health` — перевірка стану
-- `POST /track` — прийом позиції об’єкта
-  Приклад JSON: `{ "object_id": "car-1", "lat": 50.45, "lon": 30.52, "speed": 12.3 }`
-- `GET /last_positions` — остання позиція для кожного `object_id`
+pip install -r app/requirements.txt
 
-## Симулятор (опційно)
+3. Запуск сервера API
+Виконується з папки app:
 
-Надсилає випадкові позиції на бекенд:
+cd app
+uvicorn main:app --reload --host 0.0.0.0 --port 8000
 
-```
-cd delivery_mvp
-python simulator.py --count 4 --interval 2.0
-```
+Сервер буде доступний за адресою: http://localhost:8000
 
-Параметри:
-- `--count` — кількість об’єктів (за замовчуванням 3)
-- `--interval` — інтервал відправлення (сек.) (за замовчуванням 2.0)
-- `--endpoint` — URL ендпоїнту `/track` (за замовчуванням `http://localhost:8000/track`)
+4. Запуск клієнтського інтерфейсу
+Відкрийте файл frontend/index.html у браузері для перегляду мапи або frontend/monitor.html для перегляду аналітики.
 
-## Налаштування
+## API Ендпоінти
 
-Змінні середовища БД задаються у `docker-compose.yml` (DB_HOST, DB_PORT, DB_NAME, DB_USER, DB_PASSWORD).
-Зазвичай міняти нічого не потрібно для локального запуску.
+Документація Swagger UI доступна за адресою: http://localhost:8000/docs
 
+Основні методи:
+- POST /track — Прийом пакету телеметрії (зберігає точку в PostGIS).
+- GET /last_positions — Останні актуальні координати всіх об'єктів.
+
+Симуляція:
+- POST /simulation/start — Запуск процесу симуляції.
+- POST /simulation/stop — Зупинка симуляції.
+
+Аналітика:
+- GET /analytics/metrics/{id} — Розрахунок дистанції, середньої швидкості, кількості зупинок.
+- GET /analytics/track/{id} — Отримання повної траєкторії руху.
+- GET /analytics/diagram/{id} — Дані для побудови графіків швидкості.
+
+## Симулятор
+
+Модуль simulator.py імітує роботу реальних GPS-трекерів. Він використовує OSRM API для побудови маршрутів по дорожній мережі м. Львова.
+
+Типи об'єктів:
+- car (автомобіль)
+- bike (велосипед)
+- foot (пішохід)
+
+Запуск вручну (опціонально, якщо не використовується API):
+
+python simulator.py
+
+## Технологічний стек
+
+- Мова: Python 3.11
+- Фреймворк: FastAPI
+- База даних: PostgreSQL + PostGIS + TimescaleDB
+- ORM: SQLAlchemy
+- Фронтенд та Візуалізація: Leaflet.js, Chart.js
+- Картографічні сервіси: OpenStreetMap (OSM) — джерело тайлів мапи
+- Маршрутизація: OSRM (Open Source Routing Machine) — генерація треків
