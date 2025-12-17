@@ -8,6 +8,7 @@
 
 ## Структура проекту
 
+```text
 GeoMonitoring_MVP/
 ├── app/
 │   ├── main.py            # Основний сервер (FastAPI)
@@ -17,7 +18,7 @@ GeoMonitoring_MVP/
 │   ├── index.html         # Мапа реального часу (Leaflet)
 │   └── monitor.html       # Аналітичний дашборд
 └── simulator.py           # Симулятор руху (клієнт OSRM)
-
+```
 ## Попередні вимоги
 
 Для роботи системи необхідно встановити:
